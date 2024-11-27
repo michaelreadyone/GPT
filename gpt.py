@@ -1,11 +1,10 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from icecream import ic
 
 # hyperparameters
-batch_size = 4 # how many independent sequences will we process in parallel?
-block_size = 8 # what is the maximum context length for predictions?
+batch_size = 64 # how many independent sequences will we process in parallel?
+block_size = 256 # what is the maximum context length for predictions?
 max_iters = 5000
 eval_interval = 500
 learning_rate = 3e-4
@@ -18,6 +17,7 @@ dropout = 0.2
 # ------------
 
 torch.manual_seed(1337)
+
 
 # wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
 with open('input.txt', 'r', encoding='utf-8') as f:
