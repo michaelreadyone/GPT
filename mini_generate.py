@@ -25,7 +25,7 @@ model.eval()  # Set the model to evaluation mode
 
 if __name__ == '__main__':
     
-    max_new_tokens = 2000
+    max_new_tokens = 200
     durations = []
     durations_diff = []
     context = torch.zeros((1, 1), dtype=torch.long, device=device)
@@ -33,7 +33,7 @@ if __name__ == '__main__':
     res, times_per_token = model.generate(context, max_new_tokens)
     ic(f'generation takes {time.time() - start_time} seconds')
     ic(res)
-    # ic(decode(res[-1].tolist()))
+    ic(decode(res[-1].tolist()))
 
     # # Plot the list
     # plt.plot(times_per_token, marker='o', linestyle='-', color='b', label='Data Points')

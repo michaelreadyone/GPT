@@ -17,8 +17,6 @@ n_head = 1
 n_layer = 1
 dropout = 0.2
 # ------------
-k_cache = None
-v_cache = [["v_cache" for _ in range(n_head)] for _ in range(n_layer)]
 
 torch.manual_seed(1337)
 
@@ -71,7 +69,7 @@ def estimate_loss():
 class Head(nn.Module):
     """ one head of self-attention """
 
-    def __init__(self, head_size, head_idx):
+    def __init__(self, head_size, head_idx, cache):
         super().__init__()
         self.head_idx = head_idx
         self.key = nn.Linear(n_embd, head_size, bias=False)
@@ -80,15 +78,15 @@ class Head(nn.Module):
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
 
         self.dropout = nn.Dropout(dropout)
-        self.k_cache = k_cache
+        self.cache = cache
 
-    def forward(self, x, cache=False):
+    def forward(self, x, training=False):
         # ic(cache)
         # ic("head forward")
         # ic(f"===================== Att begins at head {self.head_idx} =====================")
         B,T,C = x.shape
         
-        if cache==False:
+        if training == True:
         
             k = self.key(x) # (B,T,hs)
             q = self.query(x)
@@ -112,23 +110,33 @@ class Head(nn.Module):
             v_last = self.value(x_last) # (B,1,hs)
             q = self.key(x)
             
-            if self.k_cache is None:
-                self.k_cache = k_last.unsqueeze(0)
-                self.v_cache = v_last.unsqueeze(0)
-            else:
-                self.k_cache = torch.cat((self.k_cache, k_last.unsqueeze(0)), dim=1)
-                self.k_cache = self.k_cache[:,-block_size:,:]
-                self.v_cache = torch.cat((self.v_cache, v_last.unsqueeze(0)), dim=1)
-                self.v_cache = self.v_cache[:,-block_size:,:]
+            if self.cache is None:
 
-            wei = q_last @ self.k_cache.transpose(-2,-1) * self.k_cache.shape[-1]**-0.5 # (B, 1, hs) @ (B, hs, T) -> (B, 1, T)
+                k_cache = k_last.unsqueeze(0)
+                v_cache = v_last.unsqueeze(0)
+                self.cache = torch.cat((k_cache.unsqueeze(0), v_cache.unsqueeze(0)))
+                # ic(self.cache)
+    
+            else:
+                k_cache = self.cache[0]
+                v_cache = self.cache[1]
+                # ic(k_cache)
+                # ic(v_cache)
+                k_cache = torch.cat((k_cache, k_last.unsqueeze(0)), dim=1)
+                k_cache = k_cache[:,-block_size:,:]
+                v_cache = torch.cat((v_cache, v_last.unsqueeze(0)), dim=1)
+                v_cache = v_cache[:,-block_size:,:]
+                self.cache = torch.cat((k_cache.unsqueeze(0), v_cache.unsqueeze(0)))
+
+
+            wei = q_last @ k_cache.transpose(-2,-1) * k_cache.shape[-1]**-0.5 # (B, 1, hs) @ (B, hs, T) -> (B, 1, T)
             wei = F.softmax(wei, dim=-1) # (B, T, T)
             wei = self.dropout(wei)
             
             # ic(self.k_cache)
             # ic(self.v_cache)
 
-            out = wei @ self.v_cache # (B, T, T) @ (B, T, hs) -> (B, T, hs)
+            out = wei @ v_cache # (B, T, T) @ (B, T, hs) -> (B, T, hs)
         
         return out
     
@@ -152,9 +160,10 @@ class Head(nn.Module):
 class MultiHeadAttention(nn.Module):
     """ multiple heads of self-attention in parallel """
 
-    def __init__(self, num_heads, head_size):
+    def __init__(self, num_heads, head_size, ):
         super().__init__()
-        self.heads = nn.ModuleList([Head(head_size, i) for i in range(num_heads)])
+        cache=[None for _ in range(num_heads)]
+        self.heads = nn.ModuleList([Head(head_size, i, cache[i]) for i in range(num_heads)])
         self.proj = nn.Linear(head_size * num_heads, n_embd)
         self.dropout = nn.Dropout(dropout)
 
@@ -238,6 +247,8 @@ class GPTLanguageModel(nn.Module):
             logits = logits.view(B*T, C)
             targets = targets.view(B*T)
             loss = F.cross_entropy(logits, targets)
+
+        # ic(logits)
 
         return logits, loss
 
