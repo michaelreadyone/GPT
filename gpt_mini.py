@@ -5,16 +5,16 @@ from icecream import ic
 import time
 
 # hyperparameters
-batch_size = 64 # how many independent sequences will we process in parallel?
-block_size = 256 # what is the maximum context length for predictions?
-max_iters = 5000
-eval_interval = 500
-learning_rate = 3e-4
+batch_size = 2 # how many independent sequences will we process in parallel?
+block_size = 16 # what is the maximum context length for predictions?
+max_iters = 500
+eval_interval = 50
+learning_rate = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-eval_iters = 200
-n_embd = 384
-n_head = 6
-n_layer = 6
+eval_iters = 20
+n_embd = 32
+n_head = 2
+n_layer = 2
 dropout = 0.2
 # ------------
 
@@ -69,8 +69,9 @@ def estimate_loss():
 class Head(nn.Module):
     """ one head of self-attention """
 
-    def __init__(self, head_size):
+    def __init__(self, head_size, head_idx):
         super().__init__()
+        self.head_idx = head_idx
         self.key = nn.Linear(n_embd, head_size, bias=False)
         self.query = nn.Linear(n_embd, head_size, bias=False)
         self.value = nn.Linear(n_embd, head_size, bias=False)
@@ -81,6 +82,7 @@ class Head(nn.Module):
     def forward(self, x):
         # input of size (batch, time-step, channels)
         # output of size (batch, time-step, head size)
+        # ic(f"===================== Att begins at head {self.head_idx} =====================")
         B,T,C = x.shape
         k = self.key(x)   # (B,T,hs)
         q = self.query(x) # (B,T,hs)
@@ -104,7 +106,7 @@ class MultiHeadAttention(nn.Module):
 
     def __init__(self, num_heads, head_size):
         super().__init__()
-        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+        self.heads = nn.ModuleList([Head(head_size, i) for i in range(num_heads)])
         self.proj = nn.Linear(head_size * num_heads, n_embd)
         self.dropout = nn.Dropout(dropout)
 
@@ -131,9 +133,10 @@ class FeedFoward(nn.Module):
 class Block(nn.Module):
     """ Transformer block: communication followed by computation """
 
-    def __init__(self, n_embd, n_head):
+    def __init__(self, n_embd, n_head, layer_idx):
         # n_embd: embedding dimension, n_head: the number of heads we'd like
         super().__init__()
+        self.layer_idx = layer_idx
         head_size = n_embd // n_head
         self.sa = MultiHeadAttention(n_head, head_size)
         self.ffwd = FeedFoward(n_embd)
@@ -141,6 +144,7 @@ class Block(nn.Module):
         self.ln2 = nn.LayerNorm(n_embd)
 
     def forward(self, x):
+        # ic(f"++++++++++++++++++++++ Block start at layer {self.layer_idx} ++++++++++++++++++++++")
         x = x + self.sa(self.ln1(x))
         x = x + self.ffwd(self.ln2(x))
         return x
@@ -152,7 +156,7 @@ class GPTLanguageModel(nn.Module):
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
-        self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_head) for _ in range(n_layer)])
+        self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_head, layer_idx=i) for i in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd) # final layer norm
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
@@ -168,6 +172,7 @@ class GPTLanguageModel(nn.Module):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, idx, targets=None):
+        # ic(f"************** GPT model called, idx shape: {idx.shape} **************")
         B, T = idx.shape
 
         # idx and targets are both (B,T) tensor of integers
@@ -221,7 +226,7 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
 
 # Model saving/loading paths
-model_save_path = 'gpt_language_model.pth'
+model_save_path = 'gpt_mini.pth'
 
 if __name__ == '__main__':
 

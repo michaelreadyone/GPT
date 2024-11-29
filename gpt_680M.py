@@ -1,25 +1,23 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from icecream import ic
 import time
 
 # hyperparameters
-batch_size = 64 # how many independent sequences will we process in parallel?
-block_size = 256 # what is the maximum context length for predictions?
-max_iters = 5000
-eval_interval = 500
+batch_size = 8 # how many independent sequences will we process in parallel?
+block_size = 512 # what is the maximum context length for predictions?
+max_iters = 500
+eval_interval = 1
 learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
-n_embd = 384
-n_head = 6
-n_layer = 6
+n_embd = 1536
+n_head = 16
+n_layer = 24
 dropout = 0.2
 # ------------
 
 torch.manual_seed(1337)
-
 
 # wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
 with open('input.txt', 'r', encoding='utf-8') as f:
@@ -48,8 +46,6 @@ def get_batch(split):
     x = torch.stack([data[i:i+block_size] for i in ix])
     y = torch.stack([data[i+1:i+block_size+1] for i in ix])
     x, y = x.to(device), y.to(device)
-    # ic(x)
-    # ic(y)
     return x, y
 
 @torch.no_grad()
@@ -92,11 +88,6 @@ class Head(nn.Module):
         # perform the weighted aggregation of the values
         v = self.value(x) # (B,T,hs)
         out = wei @ v # (B, T, T) @ (B, T, hs) -> (B, T, hs)
-        # ic(k)
-        # ic(q)
-        # ic(v)
-        # ic(wei)
-        # ic(out)
         return out
 
 class MultiHeadAttention(nn.Module):
@@ -219,9 +210,8 @@ print(sum(p.numel() for p in m.parameters())/1e6, 'M parameters')
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-
 # Model saving/loading paths
-model_save_path = 'gpt_language_model.pth'
+model_save_path = 'gpt_680M.pth'
 
 if __name__ == '__main__':
 
@@ -248,4 +238,3 @@ if __name__ == '__main__':
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
-
