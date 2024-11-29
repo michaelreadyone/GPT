@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 from icecream import ic
 import time
+from logger import logger
 
 # hyperparameters
 batch_size = 2 # how many independent sequences will we process in parallel?
@@ -13,10 +14,12 @@ learning_rate = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 20
 n_embd = 32
-n_head = 1
+n_head = 4
 n_layer = 1
 dropout = 0.2
 # ------------
+training = True
+ic(f'training: {training}, n_head: {n_head}, n_layer: {n_layer}')
 
 torch.manual_seed(1337)
 
@@ -80,10 +83,9 @@ class Head(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.cache = cache
 
-    def forward(self, x, training=False):
-        # ic(cache)
-        # ic("head forward")
-        # ic(f"===================== Att begins at head {self.head_idx} =====================")
+    def forward(self, x, training=training):
+        ic("head forward")
+        ic(f"===================== Att begins at head {self.head_idx} =====================")
         B,T,C = x.shape
         
         if training == True:
@@ -97,8 +99,10 @@ class Head(nn.Module):
             wei = F.softmax(wei, dim=-1) # (B, T, T)
             wei = self.dropout(wei)
             
-            # ic(k)
-            # ic(v)
+            # logger.info(f'k: {k}')
+            # logger.info(f'v: {v}')
+            ic(k)
+            ic(v)
 
             out = wei @ v # (B, T, T) @ (B, T, hs) -> (B, T, hs)
         
@@ -133,8 +137,10 @@ class Head(nn.Module):
             wei = F.softmax(wei, dim=-1) # (B, T, T)
             wei = self.dropout(wei)
             
-            # ic(self.k_cache)
-            # ic(self.v_cache)
+            # logger.info(f'k_cache: {k_cache}')
+            # logger.info(f'v_cache: {v_cache}')
+            ic(k_cache)
+            ic(v_cache)
 
             out = wei @ v_cache # (B, T, T) @ (B, T, hs) -> (B, T, hs)
         

@@ -11,7 +11,9 @@ from icecream import ic
 # model_save_path = "gpt_mini.pth"
 
 from gpt_mini_kv_cache import GPTLanguageModel, decode
-model_save_path = "gpt_mini_cache.pth"
+# model_save_path = "gpt_mini_cache_1head_1layer.pth"
+# model_save_path = "gpt_mini_cache_2head_1layer_loss_2_51.pth"
+model_save_path = "gpt_mini_cache_4head_1layer_loss_2_52.pth"
 
 
 model = GPTLanguageModel()
@@ -25,7 +27,7 @@ model.eval()  # Set the model to evaluation mode
 
 if __name__ == '__main__':
     
-    max_new_tokens = 200
+    max_new_tokens = 3
     durations = []
     durations_diff = []
     context = torch.zeros((1, 1), dtype=torch.long, device=device)
