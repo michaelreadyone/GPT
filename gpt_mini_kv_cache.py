@@ -18,7 +18,7 @@ n_head = 2
 n_layer = 2
 dropout = 0.2
 # ------------
-training = True
+training = False
 ic(f'training: {training}, n_head: {n_head}, n_layer: {n_layer}')
 
 torch.manual_seed(1337)
@@ -80,6 +80,7 @@ class Head(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
         self.cache = cache
+        self.warm_up = True
 
     def forward(self, x, training=training):
         ic(f"=== Att begins at head {self.head_idx} ===")
@@ -91,33 +92,42 @@ class Head(nn.Module):
             q = self.query(x)
             v = self.value(x)
             
-            wei = q @ k.transpose(-2,-1) * k.shape[-1]**-0.5 # (B, T, hs) @ (B, hs, T) -> (B, T, T)
-            wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T)
-            wei = F.softmax(wei, dim=-1) # (B, T, T)
-            wei = self.dropout(wei)
+            att = q @ k.transpose(-2,-1) * k.shape[-1]**-0.5 # (B, T, hs) @ (B, hs, T) -> (B, T, T)
+            att = att.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T)
+            att = F.softmax(att, dim=-1) # (B, T, T)
+            att = self.dropout(att)
             
             # logger.info(f'k: {k}')
             # logger.info(f'v: {v}')
             ic(k)
             ic(v)
 
-            out = wei @ v # (B, T, T) @ (B, T, hs) -> (B, T, hs)
+            out = att @ v # (B, T, T) @ (B, T, hs) -> (B, T, hs)
         
         else:
-        
-            x_last = x[:,-1,:]
-            q_last = self.query(x_last) # (B,1,hs)
-            k_last = self.key(x_last)   # (B,1,hs)
-            v_last = self.value(x_last) # (B,1,hs)
-            q = self.key(x)
-            
-            if self.cache is None:
-
-                k_cache = k_last.unsqueeze(0)
-                v_cache = v_last.unsqueeze(0)
+            ic(self.warm_up)
+            if self.warm_up:
+                k = self.key(x) # (B,T,hs)
+                q = self.query(x)
+                v = self.value(x)    
+                att = q @ k.transpose(-2,-1) * k.shape[-1]**-0.5 # (B, T, hs) @ (B, hs, T) -> (B, T, T)
+                att = att.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T)
+                att = F.softmax(att, dim=-1) # (B, T, T)
+                att = self.dropout(att)
+                out = att @ v # (B, T, T) @ (B, T, hs) -> (B, T, hs)
+                
+                k_cache = k
+                v_cache = v
                 self.cache = torch.cat((k_cache.unsqueeze(0), v_cache.unsqueeze(0)))
-    
+                self.warm_up = False
             else:
+        
+                x_last = x[:,-1,:]
+                q_last = self.query(x_last) # (B,1,hs)
+                k_last = self.key(x_last)   # (B,1,hs)
+                v_last = self.value(x_last) # (B,1,hs)
+                q = self.key(x)
+            
                 k_cache = self.cache[0]
                 v_cache = self.cache[1]
                 k_cache = torch.cat((k_cache, k_last.unsqueeze(0)), dim=1)
@@ -127,16 +137,15 @@ class Head(nn.Module):
                 self.cache = torch.cat((k_cache.unsqueeze(0), v_cache.unsqueeze(0)))
 
 
-            wei = q_last @ k_cache.transpose(-2,-1) * k_cache.shape[-1]**-0.5 # (B, 1, hs) @ (B, hs, T) -> (B, 1, T)
-            wei = F.softmax(wei, dim=-1) # (B, 1, T)
-            wei = self.dropout(wei)
-            
-            # logger.info(f'k_cache: {k_cache}')
-            # logger.info(f'v_cache: {v_cache}')
-            ic(k_cache)
-            ic(v_cache)
-
-            out = wei @ v_cache # (B, 1, T) @ (B, T, hs) -> (B, 1, hs)
+                att = q_last @ k_cache.transpose(-2,-1) * k_cache.shape[-1]**-0.5 # (B, 1, hs) @ (B, hs, T) -> (B, 1, T)
+                att = F.softmax(att, dim=-1) # (B, 1, T)
+                att = self.dropout(att)
+                
+                # logger.info(f'k_cache: {k_cache}')
+                # logger.info(f'v_cache: {v_cache}')
+                out = att @ v_cache # (B, 1, T) @ (B, T, hs) -> (B, 1, hs)
+            # ic(k_cache)
+            # ic(v_cache)
         
         return out
     
@@ -150,11 +159,11 @@ class Head(nn.Module):
         
         
         # compute attention scores ("affinities")
-        wei = q @ k.transpose(-2,-1) * k.shape[-1]**-0.5 # (B, 1, hs) @ (B, hs, T) -> (B, 1, T)
-        wei = F.softmax(wei, dim=-1) # (B, T, T)
+        att = q @ k.transpose(-2,-1) * k.shape[-1]**-0.5 # (B, 1, hs) @ (B, hs, T) -> (B, 1, T)
+        att = F.softmax(att, dim=-1) # (B, T, T)
         # perform the weighted aggregation of the values
         
-        out = wei @ v # (B, 1, T) @ (B, T, hs) -> (B, 1, hs)
+        out = att @ v # (B, 1, T) @ (B, T, hs) -> (B, 1, hs)
         return out
 
 class MultiHeadAttention(nn.Module):

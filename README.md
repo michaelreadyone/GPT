@@ -15,10 +15,10 @@ Finished:
 - Head has an input "cache" which inlude both k_cache and v_cache
 - mutliple Heads
 - multiple layer
+- multiple Head & multiple Layer
+- Multiple input tokens
 Doing:
 
-- multiple Head & multiple Layer
+- visulaize attention
 
 Todo:
-
-- Multiple input tokens
