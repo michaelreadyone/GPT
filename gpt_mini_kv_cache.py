@@ -14,8 +14,8 @@ learning_rate = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 20
 n_embd = 32
-n_head = 4
-n_layer = 1
+n_head = 2
+n_layer = 2
 dropout = 0.2
 # ------------
 training = True
@@ -51,8 +51,6 @@ def get_batch(split):
     x = torch.stack([data[i:i+block_size] for i in ix])
     y = torch.stack([data[i+1:i+block_size+1] for i in ix])
     x, y = x.to(device), y.to(device)
-    # ic(x)
-    # ic(y)
     return x, y
 
 @torch.no_grad()
@@ -84,8 +82,7 @@ class Head(nn.Module):
         self.cache = cache
 
     def forward(self, x, training=training):
-        ic("head forward")
-        ic(f"===================== Att begins at head {self.head_idx} =====================")
+        ic(f"=== Att begins at head {self.head_idx} ===")
         B,T,C = x.shape
         
         if training == True:
@@ -119,13 +116,10 @@ class Head(nn.Module):
                 k_cache = k_last.unsqueeze(0)
                 v_cache = v_last.unsqueeze(0)
                 self.cache = torch.cat((k_cache.unsqueeze(0), v_cache.unsqueeze(0)))
-                # ic(self.cache)
     
             else:
                 k_cache = self.cache[0]
                 v_cache = self.cache[1]
-                # ic(k_cache)
-                # ic(v_cache)
                 k_cache = torch.cat((k_cache, k_last.unsqueeze(0)), dim=1)
                 k_cache = k_cache[:,-block_size:,:]
                 v_cache = torch.cat((v_cache, v_last.unsqueeze(0)), dim=1)
@@ -134,7 +128,7 @@ class Head(nn.Module):
 
 
             wei = q_last @ k_cache.transpose(-2,-1) * k_cache.shape[-1]**-0.5 # (B, 1, hs) @ (B, hs, T) -> (B, 1, T)
-            wei = F.softmax(wei, dim=-1) # (B, T, T)
+            wei = F.softmax(wei, dim=-1) # (B, 1, T)
             wei = self.dropout(wei)
             
             # logger.info(f'k_cache: {k_cache}')
@@ -142,7 +136,7 @@ class Head(nn.Module):
             ic(k_cache)
             ic(v_cache)
 
-            out = wei @ v_cache # (B, T, T) @ (B, T, hs) -> (B, T, hs)
+            out = wei @ v_cache # (B, 1, T) @ (B, T, hs) -> (B, 1, hs)
         
         return out
     
@@ -207,7 +201,7 @@ class Block(nn.Module):
         self.ln2 = nn.LayerNorm(n_embd)
 
     def forward(self, x):
-        # ic(f"++++++++++++++++++++++ Block start at layer {self.layer_idx} ++++++++++++++++++++++")
+        ic(f"+++ Block start at layer {self.layer_idx} +++")
         x = x + self.sa(self.ln1(x))
         x = x + self.ffwd(self.ln2(x))
         return x
@@ -235,7 +229,7 @@ class GPTLanguageModel(nn.Module):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, idx, targets=None):
-        # ic(f"************** GPT model called, idx shape: {idx.shape} **************")
+        ic(f"*** GPT model called, idx shape: {idx.shape} ***")
         B, T = idx.shape
 
         # idx and targets are both (B,T) tensor of integers

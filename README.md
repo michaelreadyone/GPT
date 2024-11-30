@@ -13,13 +13,12 @@ Finished:
 
 - One Head, One Layer, One input token, k_cache and v_cache seperated
 - Head has an input "cache" which inlude both k_cache and v_cache
-
+- mutliple Heads
+- multiple layer
 Doing:
 
-- mutliple Heads
-  - Need retrain model
+- multiple Head & multiple Layer
 
 Todo:
 
-- Multiple Layer
 - Multiple input tokens
