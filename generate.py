@@ -21,7 +21,7 @@ model.eval()  # Set the model to evaluation mode
 
 if __name__ == '__main__':
     
-    max_new_tokens = 100
+    max_new_tokens = 5
     durations = []
     durations_diff = []
     # context = torch.zeros((1, 1), dtype=torch.long, device=device)
@@ -38,23 +38,24 @@ if __name__ == '__main__':
                   56, 63,  1, 42, 56, 43, 39, 51,  1, 58, 53,  1, 42, 53,  1, 63, 53, 59,
                    1, 54, 56, 53, 51, 47, 57, 43, 42, 11,  0, 26, 53, 58,  1, 57, 43, 50,
                   44, 10,  1, 52, 53, 56,  6,  1, 39, 57,  1, 58, 46, 43,  1, 41, 56, 59,
-                  43, 50,  1, 47, 57,  1, 63, 53, 59, 56, 57,  8,  0,  0, 31, 21, 15, 21,
-                  26, 21, 33, 31, 10]], device=device)
-    model.generate(context, 1)
+                  43, 50,  1, 47, 57,  1, 63, 53, 59, 56, 57,  6,  0, 32, 53,  1, 57, 39,
+                  63,  1]], device=device)
+    ic(context.shape)
+    ic(f'prefix: {decode(context[-1].tolist())}')
     res, times_per_token = model.generate(context, max_new_tokens)
-    ic(res)
+    # ic(res)
     ic(decode(res[-1].tolist()))
     # ic(tokenizer.decode(res[-1]))
     # Plot the list
-    plt.plot(times_per_token, marker='o', linestyle='-', color='b', label='Data Points')
+    # plt.plot(times_per_token, marker='o', linestyle='-', color='b', label='Data Points')
 
-    # Adding labels and title
-    plt.title('Plot of the Python List')
-    plt.xlabel('Index')
-    plt.ylabel('Value')
+    # # Adding labels and title
+    # plt.title('Plot of the Python List')
+    # plt.xlabel('Index')
+    # plt.ylabel('Value')
 
-    # Show the legend
-    plt.legend()
+    # # Show the legend
+    # plt.legend()
 
-    # Display the plot
-    plt.show()
+    # # Display the plot
+    # plt.show()

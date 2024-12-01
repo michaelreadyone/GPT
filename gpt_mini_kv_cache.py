@@ -83,7 +83,7 @@ class Head(nn.Module):
         self.warm_up = True
 
     def forward(self, x, training=training):
-        ic(f"=== Att begins at head {self.head_idx} ===")
+        # ic(f"=== Att begins at head {self.head_idx} ===")
         B,T,C = x.shape
         
         if training == True:
@@ -99,13 +99,13 @@ class Head(nn.Module):
             
             # logger.info(f'k: {k}')
             # logger.info(f'v: {v}')
-            ic(k)
-            ic(v)
+            # ic(k)
+            # ic(v)
 
             out = att @ v # (B, T, T) @ (B, T, hs) -> (B, T, hs)
         
         else:
-            ic(self.warm_up)
+            # ic(self.warm_up)
             if self.warm_up:
                 k = self.key(x) # (B,T,hs)
                 q = self.query(x)
@@ -210,7 +210,7 @@ class Block(nn.Module):
         self.ln2 = nn.LayerNorm(n_embd)
 
     def forward(self, x):
-        ic(f"+++ Block start at layer {self.layer_idx} +++")
+        # ic(f"+++ Block start at layer {self.layer_idx} +++")
         x = x + self.sa(self.ln1(x))
         x = x + self.ffwd(self.ln2(x))
         return x
@@ -238,7 +238,7 @@ class GPTLanguageModel(nn.Module):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, idx, targets=None):
-        ic(f"*** GPT model called, idx shape: {idx.shape} ***")
+        # ic(f"*** GPT model called, idx shape: {idx.shape} ***")
         B, T = idx.shape
 
         # idx and targets are both (B,T) tensor of integers
