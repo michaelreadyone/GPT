@@ -70,7 +70,7 @@ def estimate_loss():
 class Head(nn.Module):
     """ one head of self-attention """
 
-    def __init__(self, head_size, head_idx, cache):
+    def __init__(self, head_size, head_idx):
         super().__init__()
         self.head_idx = head_idx
         self.key = nn.Linear(n_embd, head_size, bias=False)
@@ -79,7 +79,7 @@ class Head(nn.Module):
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
 
         self.dropout = nn.Dropout(dropout)
-        self.cache = cache
+        self.cache = None
         self.warm_up = True
 
     def forward(self, x, training=training):
@@ -169,10 +169,9 @@ class Head(nn.Module):
 class MultiHeadAttention(nn.Module):
     """ multiple heads of self-attention in parallel """
 
-    def __init__(self, num_heads, head_size, ):
+    def __init__(self, num_heads, head_size):
         super().__init__()
-        cache=[None for _ in range(num_heads)]
-        self.heads = nn.ModuleList([Head(head_size, i, cache[i]) for i in range(num_heads)])
+        self.heads = nn.ModuleList([Head(head_size, i) for i in range(num_heads)])
         self.proj = nn.Linear(head_size * num_heads, n_embd)
         self.dropout = nn.Dropout(dropout)
 

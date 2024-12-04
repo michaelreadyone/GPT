@@ -17,8 +17,10 @@ Finished:
 - multiple layer
 - multiple Head & multiple Layer
 - Multiple input tokens
+- visulaize attention
+  - each head will evict its own tokens based on its weights, in this case, different head may evict tokens at different locations.
 Doing:
 
-- visulaize attention
+- Migrate changes from miniGPT into gpt module.
 
 Todo:

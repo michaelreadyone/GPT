@@ -21,7 +21,7 @@ model.eval()  # Set the model to evaluation mode
 
 if __name__ == '__main__':
     
-    max_new_tokens = 5
+    max_new_tokens = 500
     durations = []
     durations_diff = []
     # context = torch.zeros((1, 1), dtype=torch.long, device=device)
