@@ -75,14 +75,6 @@ def apply_rotary_embeddings(x: torch.Tensor, freqs_complex: torch.Tensor, device
     x_out = x_out.reshape(*x.shape)
     return x_out.type_as(x).to(device)
 
-def evict_cache_h20(x: torch.Tensor, max_cache_size: int):
-    "assume prefix will not exceed block size"
-    
-    pass
-
-def evict_cache(x: torch.Tensor, evict_ids: list):
-    
-    pass
 
 class Head(nn.Module):
     """ One head of self-attention with ROPE """
@@ -136,9 +128,7 @@ class Head(nn.Module):
                 wei = F.softmax(wei, dim=-1)
                 wei = self.dropout(wei)
                 out = wei @ v
-                
-                evict_ids = evict_cache_h20(wei, block_size)
-                
+                                
                 self.cache_k = evict_cache(k, evict_ids)
                 self.cache_v = evict_cache(v, evict_ids)
                 self.warm_up = False

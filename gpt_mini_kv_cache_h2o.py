@@ -4,17 +4,16 @@ from torch.nn import functional as F
 from icecream import ic
 
 # hyperparameters
-batch_size = 64
-block_size = 256
-max_iters = 5000
-eval_interval = 500
-learning_rate = 3e-4
+batch_size = 2 # how many independent sequences will we process in parallel?
+block_size = 8 # what is the maximum context length for predictions?
+max_iters = 500
+eval_interval = 50
+learning_rate = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-eval_iters = 200
-n_embd = 384
-n_head = 6
-n_layer = 6
-dropout = 0.2
+eval_iters = 20
+n_embd = 16
+n_head = 2
+n_layer = 2
 
 training = False
 
@@ -75,23 +74,36 @@ def apply_rotary_embeddings(x: torch.Tensor, freqs_complex: torch.Tensor, device
     x_out = x_out.reshape(*x.shape)
     return x_out.type_as(x).to(device)
 
+def get_evict_ids(importance: torch.Tensor):
+    column_sums = importance.sum(dim=1)
+    min_idx = torch.argmin(column_sums).item()
+    return min_idx
+    
+
+def evict_cache_at_row(tensors: torch.Tensor, evict_id: int):
+    return torch.concat((tensors[:,:evict_id], tensors[:,evict_id+1:]), dim=1)
+
+
 class Head(nn.Module):
     """ One head of self-attention with ROPE """
 
-    def __init__(self, head_size, head_idx):
+    def __init__(self, head_size, head_idx, layer_idx):
         super().__init__()
         self.head_idx = head_idx
+        self.layer_idx = layer_idx
         self.key = nn.Linear(n_embd, head_size, bias=False)
         self.query = nn.Linear(n_embd, head_size, bias=False)
         self.value = nn.Linear(n_embd, head_size, bias=False)
-        self.dropout = nn.Dropout(dropout)
         self.head_size = head_size
         self.cache_k = None
         self.cache_v = None
+        self.importance = None
+        self.max_cache_len = block_size
         self.warm_up = True
         self.infer_len = 0
 
     def forward(self, x):
+        ic(self.layer_idx, self.head_idx)
         B, T, C = x.shape
         if training == True:
             k = self.key(x)
@@ -107,7 +119,6 @@ class Head(nn.Module):
             wei = (q @ k.transpose(-2, -1)) * (self.head_size ** -0.5)
             wei = wei.masked_fill(torch.tril(torch.ones(T, T, device=device)) == 0, float('-inf'))
             wei = F.softmax(wei, dim=-1)
-            wei = self.dropout(wei)
             out = wei @ v
         else:
             if self.warm_up:
@@ -125,9 +136,24 @@ class Head(nn.Module):
                 wei = (q @ k.transpose(-2, -1)) * (self.head_size ** -0.5)
                 wei = wei.masked_fill(torch.tril(torch.ones(T, T, device=device)) == 0, float('-inf'))
                 wei = F.softmax(wei, dim=-1)
-                wei = self.dropout(wei)
+                
                 out = wei @ v
                 
+                if wei.shape[1] >= block_size:
+                    evict_id = get_evict_ids(wei)
+                    wei = evict_cache_at_row(wei, evict_id)
+                    k = evict_cache_at_row(k, evict_id)
+                    v = evict_cache_at_row(v, evict_id)
+                    
+                    
+                
+                
+                if self.head_idx == 0 and self.layer_idx == 0:
+                    ic(wei)
+                    ic(k)
+                    ic(v)
+                
+                self.importance = wei
                 self.cache_k = k
                 self.cache_v = v
                 self.warm_up = False
@@ -145,15 +171,35 @@ class Head(nn.Module):
                 
 
                 cache_k = torch.cat((self.cache_k, k.unsqueeze(0)), dim=1)
-                cache_k = cache_k[:,-block_size:,:]
                 cache_v = torch.cat((self.cache_v, v.unsqueeze(0)), dim=1)
-                cache_v = cache_v[:,-block_size:,:]
-                self.cache_k = cache_k
-                self.cache_v = cache_v
 
                 att = q @ cache_k.transpose(-2,-1) * cache_k.shape[-1]**-0.5 # (B, 1, hs) @ (B, hs, T) -> (B, 1, T)
                 att = F.softmax(att, dim=-1) # (B, 1, T)
-                att = self.dropout(att)
+
+                if self.importance.shape[2] < self.max_cache_len:
+                    zeros_column = torch.zeros((self.importance.size(0), self.importance.size(1), 1), device=self.importance.device)
+                    self.importance = torch.cat((self.importance, zeros_column), dim=2)
+                if self.head_idx == 0 and self.layer_idx == 0:
+                    ic(self.importance)
+                    ic(att)
+                    
+                self.importance = torch.cat((self.importance, att), dim=1)
+                
+                
+                if self.importance.shape[1] >= block_size:
+                    ic("evict at inference")
+                    evict_id = get_evict_ids(self.importance)
+                    self.importance = evict_cache_at_row(self.importance, evict_id)
+                    self.cache_k = evict_cache_at_row(cache_k, evict_id)
+                    self.cache_v = evict_cache_at_row(cache_v, evict_id)
+                else:
+                    self.cache_k = cache_k
+                    self.cache_v = cache_v
+                
+                if self.head_idx == 0 and self.layer_idx == 0:
+                    ic(self.importance)
+                    ic(self.cache_k)
+                    ic(self.cache_v)
                 
                 # logger.info(f'cache_k: {cache_k}')
                 # logger.info(f'cache_v: {cache_v}')
@@ -162,15 +208,14 @@ class Head(nn.Module):
         return out
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, num_heads, head_size):
+    def __init__(self, num_heads, head_size, lay_idx):
         super().__init__()
-        self.heads = nn.ModuleList([Head(head_size, i) for i in range(num_heads)])
+        self.heads = nn.ModuleList([Head(head_size, i, lay_idx) for i in range(num_heads)])
         self.proj = nn.Linear(head_size * num_heads, n_embd)
-        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         out = torch.cat([h(x) for h in self.heads], dim=-1)
-        out = self.dropout(self.proj(out))
+        out = self.proj(out)
         return out
 
 class FeedForward(nn.Module):
@@ -180,17 +225,17 @@ class FeedForward(nn.Module):
             nn.Linear(n_embd, 4 * n_embd),
             nn.ReLU(),
             nn.Linear(4 * n_embd, n_embd),
-            nn.Dropout(dropout),
         )
 
     def forward(self, x):
         return self.net(x)
 
 class Block(nn.Module):
-    def __init__(self, n_embd, n_head):
+    def __init__(self, n_embd, n_head, i):
         super().__init__()
         head_size = n_embd // n_head
-        self.sa = MultiHeadAttention(n_head, head_size)
+        self.layer_idx = i
+        self.sa = MultiHeadAttention(n_head, head_size, self.layer_idx)
         self.ffwd = FeedForward(n_embd)
         self.ln1 = nn.LayerNorm(n_embd)
         self.ln2 = nn.LayerNorm(n_embd)
@@ -204,7 +249,7 @@ class GPTLanguageModel(nn.Module):
     def __init__(self):
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
-        self.blocks = nn.Sequential(*[Block(n_embd, n_head) for _ in range(n_layer)])
+        self.blocks = nn.Sequential(*[Block(n_embd, n_head, i) for i in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd)
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
@@ -256,7 +301,7 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
 
 # Model saving/loading paths
-# model_save_path = 'gpt_rope.pth'
+model_save_path = 'gpt_mini.pth'
 
 if __name__ == '__main__':
 
