@@ -3,8 +3,8 @@ import torch.nn as nn
 from torch.nn import functional as F
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # from gpt_rope import GPTLanguageModel, decode
-# from gpt_rope_cache import GPTLanguageModel, decode
-from gpt_rope_cache_h2o import GPTLanguageModel, decode
+from gpt_rope_cache import GPTLanguageModel, decode
+# from gpt_rope_cache_h2o import GPTLanguageModel, decode
 from datetime import datetime
 
 model_save_path = "gpt_rope.pth"
@@ -35,7 +35,7 @@ context = torch.zeros((1, 1), dtype=torch.long, device=device)
 #                   44, 10,  1, 52, 53, 56,  6,  1, 39, 57,  1, 58, 46, 43,  1, 41, 56, 59,
 #                   43, 50,  1, 47, 57,  1, 63, 53, 59, 56, 57,  6,  0, 32, 53,  1, 57, 39,
 #                   63,  1]], device=device)
-generated_text = decode(model.generate(context, max_new_tokens=300)[0].tolist())
+generated_text = decode(model.generate(context, max_new_tokens=1000)[0].tolist())
 print(generated_text)
 
 # Save the generated text to a file if needed

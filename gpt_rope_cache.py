@@ -20,7 +20,7 @@ training = False
 
 ic(f'training: {training}, n_head: {n_head}, n_layer: {n_layer}')
 
-torch.manual_seed(1337)
+# torch.manual_seed(1337)
 
 # Load data
 with open('input.txt', 'r', encoding='utf-8') as f:
@@ -87,6 +87,8 @@ class Head(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.head_size = head_size
         self.cache = None
+        self.cache_k = None
+        self.cache_v = None
         self.warm_up = True
         self.infer_len = 0
 
@@ -127,9 +129,8 @@ class Head(nn.Module):
                 wei = self.dropout(wei)
                 out = wei @ v
                 
-                k_cache = k
-                v_cache = v
-                self.cache = torch.cat((k_cache.unsqueeze(0), v_cache.unsqueeze(0)))
+                self.cache_k = k
+                self.cache_v = v
                 self.warm_up = False
             else:
                 x = x[:,-1,:]
@@ -143,22 +144,21 @@ class Head(nn.Module):
                 k = apply_rotary_embeddings(k, freqs_complex)
                 q = apply_rotary_embeddings(q, freqs_complex)
                 
-                k_cache = self.cache[0]
-                v_cache = self.cache[1]
-                k_cache = torch.cat((k_cache, k.unsqueeze(0)), dim=1)
-                k_cache = k_cache[:,-block_size:,:]
-                v_cache = torch.cat((v_cache, v.unsqueeze(0)), dim=1)
-                v_cache = v_cache[:,-block_size:,:]
-                self.cache = torch.cat((k_cache.unsqueeze(0), v_cache.unsqueeze(0)))
-                
 
-                att = q @ k_cache.transpose(-2,-1) * k_cache.shape[-1]**-0.5 # (B, 1, hs) @ (B, hs, T) -> (B, 1, T)
+                cache_k = torch.cat((self.cache_k, k.unsqueeze(0)), dim=1)
+                cache_k = cache_k[:,-block_size:,:]
+                cache_v = torch.cat((self.cache_v, v.unsqueeze(0)), dim=1)
+                cache_v = cache_v[:,-block_size:,:]
+                self.cache_k = cache_k
+                self.cache_v = cache_v
+
+                att = q @ cache_k.transpose(-2,-1) * cache_k.shape[-1]**-0.5 # (B, 1, hs) @ (B, hs, T) -> (B, 1, T)
                 att = F.softmax(att, dim=-1) # (B, 1, T)
                 att = self.dropout(att)
                 
-                # logger.info(f'k_cache: {k_cache}')
-                # logger.info(f'v_cache: {v_cache}')
-                out = att @ v_cache # (B, 1, T) @ (B, T, hs) -> (B, 1, hs)
+                # logger.info(f'cache_k: {cache_k}')
+                # logger.info(f'cache_v: {cache_v}')
+                out = att @ cache_v # (B, 1, T) @ (B, T, hs) -> (B, 1, hs)
                       
         return out
 
