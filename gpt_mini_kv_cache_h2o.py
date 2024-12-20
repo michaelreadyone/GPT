@@ -75,7 +75,9 @@ def apply_rotary_embeddings(x: torch.Tensor, freqs_complex: torch.Tensor, device
     return x_out.type_as(x).to(device)
 
 def get_evict_ids(importance: torch.Tensor):
+    ic(importance)
     column_sums = importance.sum(dim=1)
+    ic(column_sums)
     min_idx = torch.argmin(column_sums).item()
     return min_idx
     
@@ -179,16 +181,17 @@ class Head(nn.Module):
                 if self.importance.shape[2] < self.max_cache_len:
                     zeros_column = torch.zeros((self.importance.size(0), self.importance.size(1), 1), device=self.importance.device)
                     self.importance = torch.cat((self.importance, zeros_column), dim=2)
-                if self.head_idx == 0 and self.layer_idx == 0:
-                    ic(self.importance)
-                    ic(att)
+                # if self.head_idx == 0 and self.layer_idx == 0:
+                #     ic(self.importance)
+                #     ic(att)
                     
                 self.importance = torch.cat((self.importance, att), dim=1)
                 
                 
                 if self.importance.shape[1] >= block_size:
-                    ic("evict at inference")
+                    
                     evict_id = get_evict_ids(self.importance)
+                    ic(f"evict id {evict_id}")
                     self.importance = evict_cache_at_row(self.importance, evict_id)
                     self.cache_k = evict_cache_at_row(cache_k, evict_id)
                     self.cache_v = evict_cache_at_row(cache_v, evict_id)
@@ -196,10 +199,10 @@ class Head(nn.Module):
                     self.cache_k = cache_k
                     self.cache_v = cache_v
                 
-                if self.head_idx == 0 and self.layer_idx == 0:
-                    ic(self.importance)
-                    ic(self.cache_k)
-                    ic(self.cache_v)
+                # if self.head_idx == 0 and self.layer_idx == 0:
+                #     ic(self.importance)
+                #     ic(self.cache_k)
+                #     ic(self.cache_v)
                 
                 # logger.info(f'cache_k: {cache_k}')
                 # logger.info(f'cache_v: {cache_v}')
