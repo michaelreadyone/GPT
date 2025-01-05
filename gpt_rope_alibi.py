@@ -95,6 +95,17 @@ def apply_rotary_embeddings(
     return x_out.type_as(x).to(device)
 
 
+def compute_alibi_bias(n_head, seq_len, device):
+    slopes = torch.tensor(
+        [2 ** (-i / n_head) for i in range(n_head)], device=device
+    )  # Define slopes for each head
+    bias = torch.arange(seq_len, device=device).view(1, -1) - torch.arange(
+        seq_len, device=device
+    ).view(-1, 1)
+    bias = bias.unsqueeze(0).repeat(n_head, 1, 1) * slopes.view(-1, 1, 1)
+    return bias
+
+
 class Attention(nn.Module):
     """Unified class for single-head and multi-head self-attention"""
 
@@ -113,6 +124,7 @@ class Attention(nn.Module):
 
         # Register the lower triangular mask for causal attention
         self.register_buffer("tril", torch.tril(torch.ones(block_size, block_size)))
+        self.alibi_bias = compute_alibi_bias(n_head, block_size, device)
 
     def forward(self, x):
         B, T, C = x.shape
@@ -138,6 +150,8 @@ class Attention(nn.Module):
 
         # Scaled dot-product attention
         att = q @ k.transpose(-2, -1) * self.head_size**-0.5  # (B, n_head, T, T)
+        att += self.alibi_bias[:, :T, :T]  # Add ALiBi bias
+
         att = att.masked_fill(self.tril[:T, :T] == 0, float("-inf"))
         att = F.softmax(att, dim=-1)  # (B, n_head, T, T)
 

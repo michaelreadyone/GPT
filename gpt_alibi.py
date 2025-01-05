@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+# hyperparameters
 batch_size = 2  # how many independent sequences will we process in parallel?
 block_size = 64  # what is the maximum context length for predictions?
 max_iters = 2000
@@ -73,26 +74,15 @@ def estimate_loss():
     return out
 
 
-def precompute_theta_pos_frequencies(
-    head_dim: int, seq_len: int, device: str = device, theta: float = 10000.0
-):
-    assert head_dim % 2 == 0, "Dimension must be divisible by 2"
-    theta_numerator = torch.arange(0, head_dim, 2).float()
-    theta = 1.0 / (theta ** (theta_numerator / head_dim)).to(device)  # (Dim / 2)
-    m = torch.arange(seq_len, device=device)
-    freqs = torch.outer(m, theta).float()
-    freqs_complex = torch.polar(torch.ones_like(freqs), freqs)
-    return freqs_complex
-
-
-def apply_rotary_embeddings(
-    x: torch.Tensor, freqs_complex: torch.Tensor, device: str = device
-):
-    x_complex = torch.view_as_complex(x.float().reshape(*x.shape[:-1], -1, 2))
-    x_rotated = x_complex * freqs_complex
-    x_out = torch.view_as_real(x_rotated)
-    x_out = x_out.reshape(*x.shape)
-    return x_out.type_as(x).to(device)
+def compute_alibi_bias(n_head, seq_len, device):
+    slopes = torch.tensor(
+        [2 ** (-i / n_head) for i in range(n_head)], device=device
+    )  # Define slopes for each head
+    bias = torch.arange(seq_len, device=device).view(1, -1) - torch.arange(
+        seq_len, device=device
+    ).view(-1, 1)
+    bias = bias.unsqueeze(0).repeat(n_head, 1, 1) * slopes.view(-1, 1, 1)
+    return bias
 
 
 class Attention(nn.Module):
@@ -101,18 +91,14 @@ class Attention(nn.Module):
     def __init__(self, n_head, head_size):
         super().__init__()
         self.n_head = n_head
-        self.head_size = n_embd // n_head
-
-        # Linear layers for query, key, and value
+        self.head_size = head_size
         self.query = nn.Linear(n_embd, n_embd, bias=False)
         self.key = nn.Linear(n_embd, n_embd, bias=False)
         self.value = nn.Linear(n_embd, n_embd, bias=False)
 
-        # Linear projection for output (used in multi-head)
-        self.proj = nn.Linear(n_embd, n_embd) if n_head > 1 else None
-
-        # Register the lower triangular mask for causal attention
+        self.proj = nn.Linear(n_embd, n_embd) if n_head > 0 else None
         self.register_buffer("tril", torch.tril(torch.ones(block_size, block_size)))
+        self.alibi_bias = compute_alibi_bias(n_head, block_size, device)
 
     def forward(self, x):
         B, T, C = x.shape
@@ -120,30 +106,17 @@ class Attention(nn.Module):
         k = self.key(x)
         v = self.value(x)
 
-        freqs_complex = precompute_theta_pos_frequencies(n_embd, T)
+        q = q.view(B, T, self.n_head, self.head_size).transpose(1, 2)
+        k = k.view(B, T, self.n_head, self.head_size).transpose(1, 2)
+        v = v.view(B, T, self.n_head, self.head_size).transpose(1, 2)
 
-        k = apply_rotary_embeddings(k, freqs_complex)
-        q = apply_rotary_embeddings(q, freqs_complex)
-
-        # Compute queries, keys, and values
-        q = q.view(B, T, self.n_head, self.head_size).transpose(
-            1, 2
-        )  # (B, n_head, T, head_size)
-        k = k.view(B, T, self.n_head, self.head_size).transpose(
-            1, 2
-        )  # (B, n_head, T, head_size)
-        v = v.view(B, T, self.n_head, self.head_size).transpose(
-            1, 2
-        )  # (B, n_head, T, head_size)
-
-        # Scaled dot-product attention
-        att = q @ k.transpose(-2, -1) * self.head_size**-0.5  # (B, n_head, T, T)
+        att = q @ k.transpose(-1, -2) * self.head_size**-0.5
+        att += self.alibi_bias[:, :T, :T]  # Add ALiBi bias
         att = att.masked_fill(self.tril[:T, :T] == 0, float("-inf"))
-        att = F.softmax(att, dim=-1)  # (B, n_head, T, T)
+        att = F.softmax(att, dim=-1)
 
-        # Apply attention weights to values
-        out = att @ v  # (B, n_head, T, head_size)
-        out = out.transpose(1, 2).contiguous().view(B, T, C)  # (B, T, C)
+        out = att @ v
+        out = out.transpose(1, 2).contiguous().view(B, T, C)
 
         # If multi-head, apply the projection layer
         if self.proj is not None:
@@ -162,7 +135,8 @@ class FeedFoward(nn.Module):
         )
 
     def forward(self, x):
-        return self.net(x)
+        out = self.net(x)
+        return out
 
 
 class Block(nn.Module):
@@ -187,24 +161,20 @@ class GPTLanguageModel(nn.Module):
     def __init__(self):
         super().__init__()
         self.embeddings_table = nn.Embedding(vocab_size, n_embd)
-        self.position_embeddings = nn.Embedding(block_size, n_embd)
         self.blocks = nn.Sequential(*[Block(n_embd, n_head) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd)
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
         self.apply(self._init_weights)
 
-    def forward(self, x, targets=None):
-        B, T = x.shape
-        embeddings = self.embeddings_table(x)
-        pe = self.position_embeddings(torch.arange(T, device=device))
-        # x = embeddings + pe
-        x = embeddings
+    def forward(self, idx, targets=None):
+        B, T = idx.shape
+        x = self.embeddings_table(idx)
         x = self.blocks(x)
         x = self.ln_f(x)
         logits = self.lm_head(x)
 
-        if targets == None:
+        if targets is None:
             loss = None
         else:
             B, T, C = logits.shape
@@ -248,9 +218,8 @@ print(sum(p.numel() for p in m.parameters()) / 1e6, "M parameters")
 # create a PyTorch optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-
 # Model saving/loading paths
-model_save_path = "gpt_attention_rope_practice.pth"
+model_save_path = "gpt_attention_alibi_practice.pth"
 
 if __name__ == "__main__":
 
